@@ -290,12 +290,15 @@
             }
             const storedValue = localStorage.getItem(key);
             if (storedValue !== null) {
-                valueInput.value = storedValue;
+                // Strip whitespace from the value
+                const strippedValue = storedValue.trim();
+                
+                valueInput.value = strippedValue;
                 valueInput.style.display = 'block';
                 copyButton.style.display = 'inline-block';
                 valueInput.select();
-                // Auto copy value!
-                const copied = await copyTextToClipboard(storedValue);
+                // Auto copy stripped value!
+                const copied = await copyTextToClipboard(strippedValue);
                 status.textContent = copied ? '✅ Value copied to clipboard!' : 'Value found (could not auto copy).';
                 status.style.color = copied ? '#2b7a0b' : '#cc6c00';
             } else {
