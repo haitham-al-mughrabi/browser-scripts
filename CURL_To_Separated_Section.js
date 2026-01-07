@@ -2,8 +2,25 @@
     'use strict';
     
     /**
-     * cURL Parser - Auto-parse on paste
+     * cURL Parser - Collapsible visibility controls + paste replace option
      */
+    
+    // Section visibility settings
+    const sectionSettings = {
+        requestLine: true,
+        baseUrl: true,
+        queryParams: true,
+        authorization: true,
+        headers: true,
+        bodyParsed: true,
+        bodyRaw: true,
+        cookies: true,
+        basicAuth: true,
+        options: true
+    };
+    
+    // Paste behavior setting
+    let pasteReplaceMode = false;
     
     function parseCurl(curlCommand) {
         if (!curlCommand || typeof curlCommand !== 'string') {
@@ -28,23 +45,20 @@
         };
 
         try {
-            // Clean up the command - handle line continuations properly
             let cleanCmd = curlCommand
                 .replace(/\\\r?\n/g, ' ')
                 .replace(/\s+/g, ' ')
                 .trim();
 
-            // Extract HTTP method
             const methodMatch = cleanCmd.match(/(?:-X|--request)\s+['"]?([A-Z]+)['"]?/i);
             if (methodMatch) {
                 result.method = methodMatch[1].toUpperCase();
             }
 
-            // Extract URL - non-greedy matching
             const urlPatterns = [
-                /curl\s+'([^']+)'/,      // curl 'url'
-                /curl\s+"([^"]+)"/,      // curl "url"
-                /curl\s+([^\s'"-]+)/     // curl url
+                /curl\s+'([^']+)'/,
+                /curl\s+"([^"]+)"/,
+                /curl\s+([^\s'"-]+)/
             ];
             
             for (let pattern of urlPatterns) {
@@ -55,7 +69,6 @@
                 }
             }
 
-            // Parse URL components
             if (result.url) {
                 const urlParts = result.url.split('?');
                 result.baseUrl = urlParts[0];
@@ -68,7 +81,6 @@
                 }
             }
 
-            // Extract headers - use non-greedy matching
             const headerPattern = /-H\s+['"]([^'"]+?)['"]/g;
             let headerMatch;
             while ((headerMatch = headerPattern.exec(cleanCmd)) !== null) {
@@ -79,44 +91,37 @@
                     const value = headerStr.substring(colonIndex + 1).trim();
                     result.headers[key] = value;
                     
-                    // Extract Authorization separately
                     if (key.toLowerCase() === 'authorization') {
                         result.authorization = value;
                     }
                 }
             }
 
-            // Extract body data - use non-greedy and avoid duplicates
-            // Only match the FIRST occurrence of -d/--data
             const dataPatterns = [
-                /-d\s+'([^']+?)'/,           // -d 'data'
-                /-d\s+"([^"]+?)"/,           // -d "data"
-                /--data\s+'([^']+?)'/,       // --data 'data'
-                /--data\s+"([^"]+?)"/,       // --data "data"
-                /--data-raw\s+'([^']+?)'/,   // --data-raw 'data'
-                /--data-raw\s+"([^"]+?)"/,   // --data-raw "data"
-                /--data-binary\s+'([^']+?)'/, // --data-binary 'data'
-                /--data-binary\s+"([^"]+?)"/, // --data-binary "data"
-                /-d\s+([^\s'"-][^\s]*)/,     // -d data (no quotes)
-                /--data\s+([^\s'"-][^\s]*)/  // --data data (no quotes)
+                /-d\s+'([^']+?)'/,
+                /-d\s+"([^"]+?)"/,
+                /--data\s+'([^']+?)'/,
+                /--data\s+"([^"]+?)"/,
+                /--data-raw\s+'([^']+?)'/,
+                /--data-raw\s+"([^"]+?)"/,
+                /--data-binary\s+'([^']+?)'/,
+                /--data-binary\s+"([^"]+?)"/,
+                /-d\s+([^\s'"-][^\s]*)/,
+                /--data\s+([^\s'"-][^\s]*)/
             ];
             
-            // Try each pattern and stop at first match
             for (let pattern of dataPatterns) {
                 const match = cleanCmd.match(pattern);
                 if (match) {
                     result.body = match[1];
-                    break; // Stop after first match to avoid duplicates
+                    break;
                 }
             }
             
-            // Parse body if found
             if (result.body) {
-                // Try to parse as JSON
                 try {
                     result.bodyParsed = JSON.parse(result.body);
                 } catch (e) {
-                    // Try URL-encoded
                     if (result.body.includes('=')) {
                         result.bodyParsed = {};
                         result.body.split('&').forEach(pair => {
@@ -133,7 +138,6 @@
                 }
             }
 
-            // Extract cookies
             const cookiePatterns = [
                 /--cookie\s+'([^']+?)'/,
                 /--cookie\s+"([^"]+?)"/,
@@ -149,7 +153,6 @@
                 }
             }
 
-            // Extract authentication (--user or -u)
             const authPatterns = [
                 /--user\s+'([^']+?)'/,
                 /--user\s+"([^"]+?)"/,
@@ -167,7 +170,6 @@
                 }
             }
 
-            // Extract flags
             result.compressed = /--compressed/.test(cleanCmd);
             result.insecure = /(?:--insecure|-k)(?:\s|$)/.test(cleanCmd);
             result.followRedirects = /(?:--location|-L)(?:\s|$)/.test(cleanCmd);
@@ -444,6 +446,39 @@
             .parsing-flash {
                 animation: flash-border 0.5s ease;
             }
+            
+            .section-toggle-checkbox {
+                margin-right: 5px;
+                cursor: pointer;
+            }
+            
+            .section-toggle-label {
+                cursor: pointer;
+                user-select: none;
+                font-size: 12px;
+                color: #555;
+            }
+            
+            .section-toggle-label:hover {
+                color: #107c10;
+            }
+            
+            .collapse-header {
+                cursor: pointer;
+                user-select: none;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            
+            .collapse-icon {
+                transition: transform 0.3s ease;
+                display: inline-block;
+            }
+            
+            .collapse-icon.collapsed {
+                transform: rotate(-90deg);
+            }
         `;
         document.head.appendChild(style);
 
@@ -495,6 +530,202 @@
         buttonContainer.appendChild(parseBtn);
         buttonContainer.appendChild(clearBtn);
 
+        // Section visibility controls - COLLAPSIBLE
+        const visibilityContainer = document.createElement('div');
+        Object.assign(visibilityContainer.style, {
+            margin: '15px 0',
+            padding: '0',
+            backgroundColor: '#f9f9f9',
+            borderRadius: '8px',
+            border: '1px solid #ddd',
+            overflow: 'hidden'
+        });
+
+        // Collapsible header
+        const visibilityHeader = document.createElement('div');
+        visibilityHeader.className = 'collapse-header';
+        Object.assign(visibilityHeader.style, {
+            padding: '12px 15px',
+            backgroundColor: '#e8e8e8',
+            borderBottom: '1px solid #ddd'
+        });
+
+        const visibilityTitle = document.createElement('div');
+        visibilityTitle.innerHTML = '<strong>⚙️ Options</strong>';
+        visibilityTitle.style.fontSize = '13px';
+        visibilityTitle.style.color = '#333';
+
+        const collapseIcon = document.createElement('span');
+        collapseIcon.className = 'collapse-icon collapsed';
+        collapseIcon.textContent = '▼';
+        collapseIcon.style.fontSize = '12px';
+        collapseIcon.style.color = '#666';
+
+        visibilityHeader.appendChild(visibilityTitle);
+        visibilityHeader.appendChild(collapseIcon);
+
+        // Collapsible content
+        const visibilityContent = document.createElement('div');
+        Object.assign(visibilityContent.style, {
+            padding: '15px',
+            display: 'none' // COLLAPSED BY DEFAULT
+        });
+
+        // Paste behavior option
+        const pasteBehaviorSection = document.createElement('div');
+        Object.assign(pasteBehaviorSection.style, {
+            marginBottom: '15px',
+            paddingBottom: '15px',
+            borderBottom: '1px solid #ddd'
+        });
+
+        const pasteBehaviorTitle = document.createElement('div');
+        pasteBehaviorTitle.innerHTML = '<strong>📋 Paste Behavior:</strong>';
+        pasteBehaviorTitle.style.marginBottom = '8px';
+        pasteBehaviorTitle.style.fontSize = '12px';
+        pasteBehaviorTitle.style.color = '#333';
+
+        const pasteReplaceWrapper = document.createElement('label');
+        pasteReplaceWrapper.className = 'section-toggle-label';
+
+        const pasteReplaceCheckbox = document.createElement('input');
+        pasteReplaceCheckbox.type = 'checkbox';
+        pasteReplaceCheckbox.className = 'section-toggle-checkbox';
+        pasteReplaceCheckbox.checked = pasteReplaceMode;
+
+        pasteReplaceCheckbox.onchange = function() {
+            pasteReplaceMode = this.checked;
+        };
+
+        const pasteReplaceLabel = document.createTextNode('Replace existing text when pasting');
+
+        pasteReplaceWrapper.appendChild(pasteReplaceCheckbox);
+        pasteReplaceWrapper.appendChild(pasteReplaceLabel);
+
+        pasteBehaviorSection.appendChild(pasteBehaviorTitle);
+        pasteBehaviorSection.appendChild(pasteReplaceWrapper);
+
+        // Section visibility title
+        const sectionVisibilityTitle = document.createElement('div');
+        sectionVisibilityTitle.innerHTML = '<strong>👁️ Show/Hide Sections:</strong>';
+        sectionVisibilityTitle.style.marginBottom = '10px';
+        sectionVisibilityTitle.style.fontSize = '12px';
+        sectionVisibilityTitle.style.color = '#333';
+
+        const checkboxGrid = document.createElement('div');
+        Object.assign(checkboxGrid.style, {
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+            gap: '8px',
+            marginBottom: '10px'
+        });
+
+        const sections = [
+            { key: 'requestLine', label: 'Request Line' },
+            { key: 'baseUrl', label: 'Base URL' },
+            { key: 'queryParams', label: 'Query Parameters' },
+            { key: 'authorization', label: 'Authorization' },
+            { key: 'headers', label: 'Headers' },
+            { key: 'bodyParsed', label: 'Body (Parsed)' },
+            { key: 'bodyRaw', label: 'Body (Raw)' },
+            { key: 'cookies', label: 'Cookies' },
+            { key: 'basicAuth', label: 'Basic Auth' },
+            { key: 'options', label: 'Options/Flags' }
+        ];
+
+        sections.forEach(function(section) {
+            const checkboxWrapper = document.createElement('label');
+            checkboxWrapper.className = 'section-toggle-label';
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'section-toggle-checkbox';
+            checkbox.checked = sectionSettings[section.key];
+            checkbox.dataset.sectionKey = section.key;
+
+            checkbox.onchange = function() {
+                sectionSettings[section.key] = this.checked;
+                performParse();
+            };
+
+            const labelText = document.createTextNode(section.label);
+
+            checkboxWrapper.appendChild(checkbox);
+            checkboxWrapper.appendChild(labelText);
+            checkboxGrid.appendChild(checkboxWrapper);
+        });
+
+        const selectButtonsContainer = document.createElement('div');
+        Object.assign(selectButtonsContainer.style, {
+            marginTop: '10px',
+            display: 'flex',
+            gap: '8px'
+        });
+
+        const selectAllBtn = document.createElement('button');
+        selectAllBtn.textContent = '✓ Select All';
+        Object.assign(selectAllBtn.style, {
+            padding: '5px 12px',
+            backgroundColor: '#107c10',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '4px',
+            fontSize: '12px',
+            cursor: 'pointer'
+        });
+        selectAllBtn.onclick = function() {
+            document.querySelectorAll('.section-toggle-checkbox').forEach(function(cb) {
+                if (cb.dataset.sectionKey) {
+                    cb.checked = true;
+                    sectionSettings[cb.dataset.sectionKey] = true;
+                }
+            });
+            performParse();
+        };
+
+        const deselectAllBtn = document.createElement('button');
+        deselectAllBtn.textContent = '✗ Deselect All';
+        Object.assign(deselectAllBtn.style, {
+            padding: '5px 12px',
+            backgroundColor: '#666',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '4px',
+            fontSize: '12px',
+            cursor: 'pointer'
+        });
+        deselectAllBtn.onclick = function() {
+            document.querySelectorAll('.section-toggle-checkbox').forEach(function(cb) {
+                if (cb.dataset.sectionKey) {
+                    cb.checked = false;
+                    sectionSettings[cb.dataset.sectionKey] = false;
+                }
+            });
+            performParse();
+        };
+
+        selectButtonsContainer.appendChild(selectAllBtn);
+        selectButtonsContainer.appendChild(deselectAllBtn);
+
+        visibilityContent.appendChild(pasteBehaviorSection);
+        visibilityContent.appendChild(sectionVisibilityTitle);
+        visibilityContent.appendChild(checkboxGrid);
+        visibilityContent.appendChild(selectButtonsContainer);
+
+        visibilityContainer.appendChild(visibilityHeader);
+        visibilityContainer.appendChild(visibilityContent);
+
+        // Toggle collapse on header click
+        visibilityHeader.onclick = function() {
+            if (visibilityContent.style.display === 'none') {
+                visibilityContent.style.display = 'block';
+                collapseIcon.classList.remove('collapsed');
+            } else {
+                visibilityContent.style.display = 'none';
+                collapseIcon.classList.add('collapsed');
+            }
+        };
+
         const sectionsLabel = document.createElement('div');
         sectionsLabel.innerHTML = '📊 <strong>Extracted Sections:</strong>';
         Object.assign(sectionsLabel.style, {
@@ -516,7 +747,6 @@
                 return;
             }
 
-            // Check if it looks like a curl command
             if (!curlCommand.toLowerCase().includes('curl')) {
                 sectionsContainer.innerHTML = '<div style="padding: 20px; text-align: center; color: #ff8c00; background: #fff; border: 2px solid #ff8c00; border-radius: 8px;">⚠️ This doesn\'t look like a cURL command</div>';
                 sectionsLabel.style.display = 'none';
@@ -534,17 +764,16 @@
             sectionsContainer.innerHTML = '';
             sectionsLabel.style.display = 'block';
 
-            // Section 1: Request Line
-            const requestLine = `${parsed.method} ${parsed.url}`;
-            sectionsContainer.appendChild(createSectionCard('REQUEST LINE', requestLine, '#0078d7'));
+            if (sectionSettings.requestLine) {
+                const requestLine = `${parsed.method} ${parsed.url}`;
+                sectionsContainer.appendChild(createSectionCard('REQUEST LINE', requestLine, '#0078d7'));
+            }
 
-            // Section 2: Base URL
-            if (parsed.baseUrl) {
+            if (sectionSettings.baseUrl && parsed.baseUrl) {
                 sectionsContainer.appendChild(createSectionCard('BASE URL', parsed.baseUrl, '#8764b8'));
             }
 
-            // Section 3: Query Parameters
-            if (Object.keys(parsed.queryParams).length > 0) {
+            if (sectionSettings.queryParams && Object.keys(parsed.queryParams).length > 0) {
                 let queryStr = '';
                 for (let [key, value] of Object.entries(parsed.queryParams)) {
                     queryStr += `${key} = ${value}\n`;
@@ -552,73 +781,71 @@
                 sectionsContainer.appendChild(createSectionCard('QUERY PARAMETERS', queryStr.trim(), '#ff8c00'));
             }
 
-            // Section 4: Authorization (extracted separately)
-            if (parsed.authorization) {
+            if (sectionSettings.authorization && parsed.authorization) {
                 sectionsContainer.appendChild(createSectionCard('AUTHORIZATION', parsed.authorization, '#b4009e'));
             }
 
-            // Section 5: Headers (without Authorization)
-            const headersWithoutAuth = {};
-            for (let [key, value] of Object.entries(parsed.headers)) {
-                if (key.toLowerCase() !== 'authorization') {
-                    headersWithoutAuth[key] = value;
+            if (sectionSettings.headers) {
+                const headersWithoutAuth = {};
+                for (let [key, value] of Object.entries(parsed.headers)) {
+                    if (key.toLowerCase() !== 'authorization') {
+                        headersWithoutAuth[key] = value;
+                    }
+                }
+                
+                if (Object.keys(headersWithoutAuth).length > 0) {
+                    let headersStr = '';
+                    for (let [key, value] of Object.entries(headersWithoutAuth)) {
+                        headersStr += `${key}: ${value}\n`;
+                    }
+                    sectionsContainer.appendChild(createSectionCard('HEADERS', headersStr.trim(), '#107c10'));
                 }
             }
-            
-            if (Object.keys(headersWithoutAuth).length > 0) {
-                let headersStr = '';
-                for (let [key, value] of Object.entries(headersWithoutAuth)) {
-                    headersStr += `${key}: ${value}\n`;
-                }
-                sectionsContainer.appendChild(createSectionCard('HEADERS', headersStr.trim(), '#107c10'));
-            }
 
-            // Section 6: Request Body (Raw) - NO DUPLICATION
-            if (parsed.body) {
-                sectionsContainer.appendChild(createSectionCard('REQUEST BODY (RAW)', parsed.body, '#d13438'));
-            }
-
-            // Section 7: Request Body (Parsed)
-            if (parsed.bodyParsed) {
+            if (sectionSettings.bodyParsed && parsed.bodyParsed) {
                 const bodyParsedStr = JSON.stringify(parsed.bodyParsed, null, 2);
                 sectionsContainer.appendChild(createSectionCard('REQUEST BODY (PARSED)', bodyParsedStr, '#005a9e'));
             }
 
-            // Section 8: Cookies
-            if (parsed.cookies) {
+            if (sectionSettings.bodyRaw && parsed.body) {
+                sectionsContainer.appendChild(createSectionCard('REQUEST BODY (RAW)', parsed.body, '#d13438'));
+            }
+
+            if (sectionSettings.cookies && parsed.cookies) {
                 sectionsContainer.appendChild(createSectionCard('COOKIES', parsed.cookies, '#744da9'));
             }
 
-            // Section 9: Basic Auth (--user)
-            if (parsed.auth) {
+            if (sectionSettings.basicAuth && parsed.auth) {
                 sectionsContainer.appendChild(createSectionCard('BASIC AUTHENTICATION', parsed.auth, '#ff6b6b'));
             }
 
-            // Section 10: Options/Flags
-            const options = [];
-            if (parsed.compressed) options.push('✓ Compression enabled');
-            if (parsed.insecure) options.push('✓ SSL verification disabled');
-            if (parsed.followRedirects) options.push('✓ Follow redirects');
-            
-            if (options.length > 0) {
-                sectionsContainer.appendChild(createSectionCard('OPTIONS & FLAGS', options.join('\n'), '#666'));
+            if (sectionSettings.options) {
+                const options = [];
+                if (parsed.compressed) options.push('✓ Compression enabled');
+                if (parsed.insecure) options.push('✓ SSL verification disabled');
+                if (parsed.followRedirects) options.push('✓ Follow redirects');
+                
+                if (options.length > 0) {
+                    sectionsContainer.appendChild(createSectionCard('OPTIONS & FLAGS', options.join('\n'), '#666'));
+                }
             }
 
             if (sectionsContainer.children.length === 0) {
-                sectionsContainer.innerHTML = '<div style="padding: 20px; text-align: center; color: #999; background: #fff; border: 2px solid #ddd; border-radius: 8px;">No sections extracted. Check your cURL syntax.</div>';
-                sectionsLabel.style.display = 'none';
+                sectionsContainer.innerHTML = '<div style="padding: 20px; text-align: center; color: #999; background: #fff; border: 2px solid #ddd; border-radius: 8px;">No sections to display (check visibility settings above)</div>';
             }
         }
 
-        // Manual parse button
         parseBtn.onclick = performParse;
 
-        // AUTO-PARSE ON PASTE [web:1]
+        // PASTE WITH REPLACE OPTION
         textarea.addEventListener('paste', function(e) {
-            // Add visual feedback
-            textarea.classList.add('parsing-flash');
+            if (pasteReplaceMode) {
+                e.preventDefault();
+                const pastedText = (e.clipboardData || window.clipboardData).getData('text');
+                textarea.value = pastedText;
+            }
             
-            // Wait for paste to complete, then parse
+            textarea.classList.add('parsing-flash');
             setTimeout(function() {
                 performParse();
                 textarea.classList.remove('parsing-flash');
@@ -651,6 +878,7 @@
         content.appendChild(inputLabel);
         content.appendChild(textarea);
         content.appendChild(buttonContainer);
+        content.appendChild(visibilityContainer);
         content.appendChild(sectionsLabel);
         content.appendChild(sectionsContainer);
 
