@@ -4,6 +4,31 @@
     const capturedRequests = [];
     let requestIdCounter = 0;
     let autoRefreshInterval = null;
+    let selectedRequestId = null;
+    
+    // Section visibility settings
+    const sectionSettings = {
+        requestInfo: true,
+        requestHeaders: true,
+        requestBody: true,
+        responseHeaders: true,
+        responseBody: true
+    };
+    
+    // Filter settings
+    const filterSettings = {
+        searchText: '',
+        methods: {
+            GET: true,
+            POST: true,
+            PUT: true,
+            DELETE: true,
+            PATCH: true,
+            HEAD: true,
+            OPTIONS: true
+        },
+        autoRefreshInterval: 2000
+    };
 
     const originalFetch = window.fetch;
     window.fetch = async function(...args) {
@@ -241,14 +266,103 @@
         }
     }
 
+    function createSectionCard(title, content, color = '#0078d7') {
+        const card = document.createElement('div');
+        Object.assign(card.style, {
+            marginBottom: '12px',
+            border: '2px solid ' + color,
+            borderRadius: '6px',
+            overflow: 'hidden',
+            backgroundColor: '#fff'
+        });
+
+        const header = document.createElement('div');
+        Object.assign(header.style, {
+            padding: '8px 12px',
+            backgroundColor: color,
+            color: '#fff',
+            fontWeight: 'bold',
+            fontSize: '12px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center'
+        });
+        header.textContent = title;
+
+        const copyBtn = document.createElement('button');
+        copyBtn.textContent = '📋 Copy';
+        copyBtn.title = 'Copy to clipboard';
+        Object.assign(copyBtn.style, {
+            padding: '4px 8px',
+            backgroundColor: 'rgba(255,255,255,0.2)',
+            color: '#fff',
+            border: '1px solid rgba(255,255,255,0.4)',
+            borderRadius: '4px',
+            fontSize: '10px',
+            cursor: 'pointer',
+            fontWeight: 'bold'
+        });
+        copyBtn.onmouseover = function() { copyBtn.style.backgroundColor = 'rgba(255,255,255,0.3)'; };
+        copyBtn.onmouseout = function() { copyBtn.style.backgroundColor = 'rgba(255,255,255,0.2)'; };
+        copyBtn.onclick = function() {
+            copyTextToClipboard(content);
+            copyBtn.textContent = '✓ Copied';
+            setTimeout(function() { copyBtn.textContent = '📋 Copy'; }, 1500);
+        };
+        header.appendChild(copyBtn);
+
+        const contentDiv = document.createElement('pre');
+        Object.assign(contentDiv.style, {
+            padding: '12px',
+            margin: '0',
+            backgroundColor: '#f9f9f9',
+            fontSize: '11px',
+            fontFamily: 'Consolas, Monaco, monospace',
+            whiteSpace: 'pre-wrap',
+            wordWrap: 'break-word',
+            maxHeight: '180px',
+            overflow: 'auto',
+            color: '#333'
+        });
+        contentDiv.textContent = content;
+
+        card.appendChild(header);
+        card.appendChild(contentDiv);
+        return card;
+    }
+
+    function filterRequests(requests) {
+        return requests.filter(function(req) {
+            // Filter by method
+            if (!filterSettings.methods[req.method]) {
+                return false;
+            }
+            
+            // Filter by search text
+            if (filterSettings.searchText) {
+                const searchLower = filterSettings.searchText.toLowerCase();
+                const urlMatch = req.url.toLowerCase().includes(searchLower);
+                const methodMatch = req.method.toLowerCase().includes(searchLower);
+                const statusMatch = String(req.status).includes(searchLower);
+                
+                if (!urlMatch && !methodMatch && !statusMatch) {
+                    return false;
+                }
+            }
+            
+            return true;
+        });
+    }
+
     function showRequestViewer() {
         const existing = document.getElementById('request-viewer');
         if (existing) {
-            document.body.removeChild(existing);
-            if (autoRefreshInterval) {
-                clearInterval(autoRefreshInterval);
-                autoRefreshInterval = null;
+            if (existing.style.display === 'none') {
+                existing.style.display = 'flex';
+            } else {
+                existing.style.display = 'none';
             }
+            return;
         }
 
         const container = document.createElement('div');
@@ -265,16 +379,91 @@
             fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
             fontSize: '14px',
             color: '#333',
-            width: '700px',
+            width: '750px',
             minWidth: '400px',
-            minHeight: '300px',
-            maxHeight: '80vh',
+            minHeight: '400px',
+            maxHeight: '85vh',
             overflow: 'hidden',
             boxSizing: 'border-box',
             resize: 'both',
             display: 'flex',
             flexDirection: 'column'
         });
+
+        // Add styles
+        const style = document.createElement('style');
+        style.textContent = `
+            .section-toggle-checkbox {
+                margin-right: 5px;
+                cursor: pointer;
+            }
+            
+            .section-toggle-label {
+                cursor: pointer;
+                user-select: none;
+                font-size: 12px;
+                color: #555;
+                display: flex;
+                align-items: center;
+            }
+            
+            .section-toggle-label:hover {
+                color: #0078d7;
+            }
+            
+            .collapse-header {
+                cursor: pointer;
+                user-select: none;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            
+            .collapse-icon {
+                transition: transform 0.3s ease;
+                display: inline-block;
+            }
+            
+            .collapse-icon.collapsed {
+                transform: rotate(-90deg);
+            }
+            
+            #request-viewer input[type="text"],
+            #request-viewer input[type="number"] {
+                padding: 6px 10px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                font-size: 12px;
+                font-family: inherit;
+                background-color: #fff !important;
+                color: #333 !important;
+            }
+            
+            #request-viewer input[type="text"]:focus,
+            #request-viewer input[type="number"]:focus {
+                outline: none;
+                border-color: #0078d7;
+                background-color: #fff !important;
+            }
+            
+            .request-item-selected {
+                background-color: #cce4f7 !important;
+                border-color: #0078d7 !important;
+                border-width: 2px !important;
+            }
+            
+            .area-label {
+                font-size: 11px;
+                font-weight: bold;
+                color: #0078d7;
+                margin-bottom: 6px;
+                padding: 4px 8px;
+                background-color: #e6f0fa;
+                border-radius: 4px;
+                border-left: 3px solid #0078d7;
+            }
+        `;
+        document.head.appendChild(style);
 
         const header = document.createElement('div');
         header.id = 'request-viewer-header';
@@ -288,58 +477,137 @@
             userSelect: 'none',
             display: 'flex',
             justifyContent: 'space-between',
-            alignItems: 'center'
+            alignItems: 'center',
+            flexShrink: '0'
         });
 
         const titleText = document.createElement('span');
         titleText.id = 'request-viewer-title';
-        titleText.textContent = 'XHR/Fetch Monitor (' + capturedRequests.length + ' requests)';
+        titleText.textContent = 'XHR/Fetch Monitor (' + capturedRequests.length + ')';
+
+        const headerButtons = document.createElement('div');
+        Object.assign(headerButtons.style, {
+            display: 'flex',
+            gap: '10px',
+            alignItems: 'center'
+        });
 
         const minimizeButton = document.createElement('button');
-        minimizeButton.textContent = '_';
+        minimizeButton.textContent = '−';
+        minimizeButton.title = 'Minimize';
         Object.assign(minimizeButton.style, {
             backgroundColor: 'transparent',
             border: 'none',
             color: '#fff',
-            fontSize: '20px',
+            fontSize: '24px',
             cursor: 'pointer',
             padding: '0 8px',
-            marginLeft: '10px'
+            lineHeight: '1',
+            fontWeight: 'bold'
         });
-        minimizeButton.onclick = function() {
-            const content = document.getElementById('request-viewer-content');
-            if (content.style.display === 'none') {
-                content.style.display = 'flex';
-                container.style.height = 'auto';
-                minimizeButton.textContent = '_';
-            } else {
-                content.style.display = 'none';
-                container.style.height = 'auto';
-                container.style.resize = 'none';
-                minimizeButton.textContent = '□';
-            }
+        
+        const closeButton = document.createElement('button');
+        closeButton.textContent = '×';
+        closeButton.title = 'Hide';
+        Object.assign(closeButton.style, {
+            backgroundColor: 'transparent',
+            border: 'none',
+            color: '#fff',
+            fontSize: '28px',
+            cursor: 'pointer',
+            padding: '0 8px',
+            lineHeight: '1'
+        });
+        closeButton.onclick = function() {
+            container.style.display = 'none';
         };
 
+        headerButtons.appendChild(minimizeButton);
+        headerButtons.appendChild(closeButton);
         header.appendChild(titleText);
-        header.appendChild(minimizeButton);
+        header.appendChild(headerButtons);
 
         const content = document.createElement('div');
         content.id = 'request-viewer-content';
         Object.assign(content.style, {
-            padding: '20px',
+            padding: '15px',
             overflow: 'auto',
             flex: '1',
             display: 'flex',
-            flexDirection: 'column'
+            flexDirection: 'column',
+            minHeight: '0'
         });
+
+        // Search bar with label
+        const searchLabel = document.createElement('div');
+        searchLabel.className = 'area-label';
+        searchLabel.textContent = '🔍 Search & Filter';
+        
+        const searchContainer = document.createElement('div');
+        Object.assign(searchContainer.style, {
+            marginBottom: '10px',
+            display: 'flex',
+            gap: '8px',
+            alignItems: 'center',
+            flexShrink: '0'
+        });
+
+        const searchInput = document.createElement('input');
+        searchInput.type = 'text';
+        searchInput.placeholder = 'Search URL, method, status...';
+        Object.assign(searchInput.style, {
+            flex: '1',
+            padding: '8px 12px',
+            border: '2px solid #ddd',
+            borderRadius: '6px',
+            fontSize: '13px',
+            backgroundColor: '#fff',
+            color: '#333'
+        });
+        
+        searchInput.oninput = function() {
+            filterSettings.searchText = this.value;
+            renderRequests();
+        };
+
+        const clearSearchBtn = document.createElement('button');
+        clearSearchBtn.textContent = '✗ Clear';
+        clearSearchBtn.title = 'Clear search';
+        Object.assign(clearSearchBtn.style, {
+            padding: '8px 16px',
+            backgroundColor: '#666',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '6px',
+            fontSize: '12px',
+            cursor: 'pointer',
+            flexShrink: '0',
+            fontWeight: 'bold',
+            minWidth: '80px'
+        });
+        clearSearchBtn.onclick = function() {
+            searchInput.value = '';
+            filterSettings.searchText = '';
+            renderRequests();
+        };
+
+        searchContainer.appendChild(searchInput);
+        searchContainer.appendChild(clearSearchBtn);
+
+        // Control bar with label
+        const controlLabel = document.createElement('div');
+        controlLabel.className = 'area-label';
+        controlLabel.textContent = '⚙️ Controls';
+        controlLabel.style.marginTop = '10px';
 
         const controlBar = document.createElement('div');
         Object.assign(controlBar.style, {
-            marginBottom: '15px',
+            marginBottom: '10px',
             display: 'flex',
-            gap: '10px',
+            gap: '8px',
             alignItems: 'center',
-            flexWrap: 'wrap'
+            flexWrap: 'wrap',
+            flexShrink: '0'
         });
 
         const autoRefreshCheckbox = document.createElement('input');
@@ -347,245 +615,607 @@
         autoRefreshCheckbox.id = 'auto-refresh-checkbox';
         autoRefreshCheckbox.checked = true;
         autoRefreshCheckbox.style.cursor = 'pointer';
+        autoRefreshCheckbox.style.flexShrink = '0';
 
         const autoRefreshLabel = document.createElement('label');
         autoRefreshLabel.setAttribute('for', 'auto-refresh-checkbox');
-        autoRefreshLabel.textContent = 'Auto-refresh (2s)';
+        autoRefreshLabel.textContent = 'Auto';
         autoRefreshLabel.style.cursor = 'pointer';
-        autoRefreshLabel.style.fontSize = '13px';
+        autoRefreshLabel.style.fontSize = '12px';
+        autoRefreshLabel.style.flexShrink = '0';
 
-        const listContainer = document.createElement('div');
-        Object.assign(listContainer.style, {
-            maxHeight: '250px',
-            overflowY: 'auto',
-            marginBottom: '15px',
-            border: '1px solid #ddd',
-            borderRadius: '8px',
-            padding: '10px',
-            backgroundColor: '#f9f9f9',
-            flex: '0 0 auto'
+        const refreshIntervalInput = document.createElement('input');
+        refreshIntervalInput.type = 'number';
+        refreshIntervalInput.min = '500';
+        refreshIntervalInput.max = '10000';
+        refreshIntervalInput.step = '500';
+        refreshIntervalInput.value = filterSettings.autoRefreshInterval;
+        Object.assign(refreshIntervalInput.style, {
+            width: '65px',
+            padding: '4px 6px',
+            fontSize: '12px',
+            backgroundColor: '#fff',
+            color: '#333',
+            flexShrink: '0'
         });
+        refreshIntervalInput.title = 'Auto-refresh interval (ms)';
 
-        const detailsContainer = document.createElement('div');
-        Object.assign(detailsContainer.style, {
-            border: '1px solid #ddd',
-            borderRadius: '8px',
-            padding: '15px',
-            backgroundColor: '#fafafa',
-            minHeight: '200px',
-            overflow: 'auto',
-            flex: '1'
-        });
-
-        const statusMsg = document.createElement('div');
-        statusMsg.style.fontSize = '12px';
-        statusMsg.style.marginTop = '10px';
-        statusMsg.style.minHeight = '18px';
-
-        const refreshButton = document.createElement('button');
-        refreshButton.textContent = 'Refresh';
-        Object.assign(refreshButton.style, {
-            padding: '6px 12px',
-            backgroundColor: '#107c10',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '6px',
-            fontSize: '13px',
-            cursor: 'pointer',
-            transition: 'background-color 0.3s ease'
-        });
-        refreshButton.onmouseover = function() { refreshButton.style.backgroundColor = '#0b5300'; };
-        refreshButton.onmouseout = function() { refreshButton.style.backgroundColor = '#107c10'; };
-        refreshButton.onclick = function() {
-            renderRequests();
-            statusMsg.textContent = '✅ Refreshed - ' + capturedRequests.length + ' requests';
-            statusMsg.style.color = '#2b7a0b';
-        };
-
-        const clearButton = document.createElement('button');
-        clearButton.textContent = 'Clear All';
-        Object.assign(clearButton.style, {
-            padding: '6px 12px',
-            backgroundColor: '#d13438',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '6px',
-            fontSize: '13px',
-            cursor: 'pointer',
-            transition: 'background-color 0.3s ease'
-        });
-        clearButton.onmouseover = function() { clearButton.style.backgroundColor = '#a02c2f'; };
-        clearButton.onmouseout = function() { clearButton.style.backgroundColor = '#d13438'; };
-        clearButton.onclick = function() {
-            capturedRequests.length = 0;
-            renderRequests();
-            titleText.textContent = 'XHR/Fetch Monitor (0 requests)';
-            statusMsg.textContent = '✅ All requests cleared';
-            statusMsg.style.color = '#2b7a0b';
-        };
-
-        controlBar.appendChild(autoRefreshCheckbox);
-        controlBar.appendChild(autoRefreshLabel);
-        controlBar.appendChild(refreshButton);
-        controlBar.appendChild(clearButton);
-
-        autoRefreshCheckbox.onchange = function() {
-            if (this.checked) {
-                autoRefreshInterval = setInterval(function() {
-                    renderRequests();
-                    titleText.textContent = 'XHR/Fetch Monitor (' + capturedRequests.length + ' requests)';
-                }, 2000);
-            } else {
-                if (autoRefreshInterval) {
-                    clearInterval(autoRefreshInterval);
-                    autoRefreshInterval = null;
+        refreshIntervalInput.onchange = function() {
+            const value = parseInt(this.value);
+            if (value >= 500 && value <= 10000) {
+                filterSettings.autoRefreshInterval = value;
+                if (autoRefreshCheckbox.checked) {
+                    if (autoRefreshInterval) {
+                        clearInterval(autoRefreshInterval);
+                    }
+                    autoRefreshInterval = setInterval(function() {
+                        renderRequests();
+                    }, filterSettings.autoRefreshInterval);
                 }
             }
         };
 
-        if (autoRefreshCheckbox.checked) {
-            autoRefreshInterval = setInterval(function() {
+        const msLabel = document.createElement('span');
+        msLabel.textContent = 'ms';
+        msLabel.style.fontSize = '11px';
+        msLabel.style.flexShrink = '0';
+
+        const refreshButton = document.createElement('button');
+        refreshButton.textContent = '🔄 Refresh';
+        refreshButton.title = 'Refresh list';
+        Object.assign(refreshButton.style, {
+            padding: '8px 16px',
+            backgroundColor: '#107c10',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '6px',
+            fontSize: '12px',
+            cursor: 'pointer',
+            transition: 'background-color 0.3s ease',
+            flexShrink: '0',
+            fontWeight: 'bold',
+            minWidth: '100px'
+        });
+        refreshButton.onmouseover = function() { refreshButton.style.backgroundColor = '#0b5300'; };
+        refreshButton.onmouseout = function() { refreshButton.style.backgroundColor = '#107c10'; };
+
+        const clearButton = document.createElement('button');
+        clearButton.textContent = '🗑️ Clear All';
+        clearButton.title = 'Clear all requests';
+        Object.assign(clearButton.style, {
+            padding: '8px 16px',
+            backgroundColor: '#d13438',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '6px',
+            fontSize: '12px',
+            cursor: 'pointer',
+            transition: 'background-color 0.3s ease',
+            flexShrink: '0',
+            fontWeight: 'bold',
+            minWidth: '100px'
+        });
+        clearButton.onmouseover = function() { clearButton.style.backgroundColor = '#a02c2f'; };
+        clearButton.onmouseout = function() { clearButton.style.backgroundColor = '#d13438'; };
+
+        controlBar.appendChild(autoRefreshCheckbox);
+        controlBar.appendChild(autoRefreshLabel);
+        controlBar.appendChild(refreshIntervalInput);
+        controlBar.appendChild(msLabel);
+        controlBar.appendChild(refreshButton);
+        controlBar.appendChild(clearButton);
+
+        // Options panel - COLLAPSIBLE
+        const optionsContainer = document.createElement('div');
+        Object.assign(optionsContainer.style, {
+            marginBottom: '10px',
+            padding: '0',
+            backgroundColor: '#f9f9f9',
+            borderRadius: '8px',
+            border: '1px solid #ddd',
+            overflow: 'hidden',
+            flexShrink: '0'
+        });
+
+        const optionsHeader = document.createElement('div');
+        optionsHeader.className = 'collapse-header';
+        Object.assign(optionsHeader.style, {
+            padding: '8px 12px',
+            backgroundColor: '#e8e8e8',
+            borderBottom: '1px solid #ddd'
+        });
+
+        const optionsTitle = document.createElement('div');
+        optionsTitle.innerHTML = '<strong>⚙️ Filters & Options</strong>';
+        optionsTitle.style.fontSize = '11px';
+        optionsTitle.style.color = '#333';
+
+        const optionsCollapseIcon = document.createElement('span');
+        optionsCollapseIcon.className = 'collapse-icon collapsed';
+        optionsCollapseIcon.textContent = '▼';
+        optionsCollapseIcon.style.fontSize = '10px';
+        optionsCollapseIcon.style.color = '#666';
+
+        optionsHeader.appendChild(optionsTitle);
+        optionsHeader.appendChild(optionsCollapseIcon);
+
+        const optionsContent = document.createElement('div');
+        Object.assign(optionsContent.style, {
+            padding: '10px',
+            display: 'none',
+            maxHeight: '200px',
+            overflow: 'auto'
+        });
+
+        // HTTP Methods Filter
+        const methodsFilterTitle = document.createElement('div');
+        methodsFilterTitle.innerHTML = '<strong>🔀 HTTP Methods:</strong>';
+        methodsFilterTitle.style.marginBottom = '6px';
+        methodsFilterTitle.style.fontSize = '10px';
+        methodsFilterTitle.style.color = '#333';
+
+        const methodsGrid = document.createElement('div');
+        Object.assign(methodsGrid.style, {
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))',
+            gap: '5px',
+            marginBottom: '8px'
+        });
+
+        const methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
+        methods.forEach(function(method) {
+            const checkboxWrapper = document.createElement('label');
+            checkboxWrapper.className = 'section-toggle-label';
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'section-toggle-checkbox';
+            checkbox.checked = filterSettings.methods[method] !== undefined ? filterSettings.methods[method] : true;
+            checkbox.dataset.method = method;
+
+            checkbox.onchange = function() {
+                filterSettings.methods[method] = this.checked;
                 renderRequests();
-                titleText.textContent = 'XHR/Fetch Monitor (' + capturedRequests.length + ' requests)';
-            }, 2000);
-        }
+            };
+
+            const labelText = document.createTextNode(method);
+
+            checkboxWrapper.appendChild(checkbox);
+            checkboxWrapper.appendChild(labelText);
+            methodsGrid.appendChild(checkboxWrapper);
+        });
+
+        const methodButtons = document.createElement('div');
+        Object.assign(methodButtons.style, {
+            marginBottom: '10px',
+            paddingBottom: '10px',
+            borderBottom: '1px solid #ddd',
+            display: 'flex',
+            gap: '5px'
+        });
+
+        const selectAllMethodsBtn = document.createElement('button');
+        selectAllMethodsBtn.textContent = '✓ All Methods';
+        Object.assign(selectAllMethodsBtn.style, {
+            padding: '6px 12px',
+            backgroundColor: '#0078d7',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '4px',
+            fontSize: '10px',
+            cursor: 'pointer',
+            fontWeight: 'bold',
+            flex: '1'
+        });
+        selectAllMethodsBtn.onclick = function() {
+            methods.forEach(function(method) {
+                filterSettings.methods[method] = true;
+            });
+            document.querySelectorAll('input[data-method]').forEach(function(cb) {
+                cb.checked = true;
+            });
+            renderRequests();
+        };
+
+        const deselectAllMethodsBtn = document.createElement('button');
+        deselectAllMethodsBtn.textContent = '✗ None';
+        Object.assign(deselectAllMethodsBtn.style, {
+            padding: '6px 12px',
+            backgroundColor: '#666',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '4px',
+            fontSize: '10px',
+            cursor: 'pointer',
+            fontWeight: 'bold',
+            flex: '1'
+        });
+        deselectAllMethodsBtn.onclick = function() {
+            methods.forEach(function(method) {
+                filterSettings.methods[method] = false;
+            });
+            document.querySelectorAll('input[data-method]').forEach(function(cb) {
+                cb.checked = false;
+            });
+            renderRequests();
+        };
+
+        methodButtons.appendChild(selectAllMethodsBtn);
+        methodButtons.appendChild(deselectAllMethodsBtn);
+
+        // Section visibility
+        const sectionVisibilityTitle = document.createElement('div');
+        sectionVisibilityTitle.innerHTML = '<strong>👁️ Detail Sections:</strong>';
+        sectionVisibilityTitle.style.marginBottom = '6px';
+        sectionVisibilityTitle.style.fontSize = '10px';
+        sectionVisibilityTitle.style.color = '#333';
+
+        const checkboxGrid = document.createElement('div');
+        Object.assign(checkboxGrid.style, {
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+            gap: '5px',
+            marginBottom: '6px'
+        });
+
+        const sections = [
+            { key: 'requestInfo', label: 'Request Info' },
+            { key: 'requestHeaders', label: 'Request Headers' },
+            { key: 'requestBody', label: 'Request Body' },
+            { key: 'responseHeaders', label: 'Response Headers' },
+            { key: 'responseBody', label: 'Response Body' }
+        ];
+
+        sections.forEach(function(section) {
+            const checkboxWrapper = document.createElement('label');
+            checkboxWrapper.className = 'section-toggle-label';
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'section-toggle-checkbox';
+            checkbox.checked = sectionSettings[section.key];
+            checkbox.dataset.sectionKey = section.key;
+
+            checkbox.onchange = function() {
+                sectionSettings[section.key] = this.checked;
+                const selectedReq = detailsContainer.dataset.selectedRequest;
+                if (selectedReq) {
+                    const req = capturedRequests.find(r => r.id === parseInt(selectedReq));
+                    if (req) showRequestDetails(req);
+                }
+            };
+
+            const labelText = document.createTextNode(section.label);
+
+            checkboxWrapper.appendChild(checkbox);
+            checkboxWrapper.appendChild(labelText);
+            checkboxGrid.appendChild(checkboxWrapper);
+        });
+
+        const selectButtonsContainer = document.createElement('div');
+        Object.assign(selectButtonsContainer.style, {
+            display: 'flex',
+            gap: '5px'
+        });
+
+        const selectAllBtn = document.createElement('button');
+        selectAllBtn.textContent = '✓ All Sections';
+        Object.assign(selectAllBtn.style, {
+            padding: '6px 12px',
+            backgroundColor: '#0078d7',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '4px',
+            fontSize: '10px',
+            cursor: 'pointer',
+            fontWeight: 'bold',
+            flex: '1'
+        });
+        selectAllBtn.onclick = function() {
+            document.querySelectorAll('.section-toggle-checkbox').forEach(function(cb) {
+                if (cb.dataset.sectionKey) {
+                    cb.checked = true;
+                    sectionSettings[cb.dataset.sectionKey] = true;
+                }
+            });
+            const selectedReq = detailsContainer.dataset.selectedRequest;
+            if (selectedReq) {
+                const req = capturedRequests.find(r => r.id === parseInt(selectedReq));
+                if (req) showRequestDetails(req);
+            }
+        };
+
+        const deselectAllBtn = document.createElement('button');
+        deselectAllBtn.textContent = '✗ None';
+        Object.assign(deselectAllBtn.style, {
+            padding: '6px 12px',
+            backgroundColor: '#666',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '4px',
+            fontSize: '10px',
+            cursor: 'pointer',
+            fontWeight: 'bold',
+            flex: '1'
+        });
+        deselectAllBtn.onclick = function() {
+            document.querySelectorAll('.section-toggle-checkbox').forEach(function(cb) {
+                if (cb.dataset.sectionKey) {
+                    cb.checked = false;
+                    sectionSettings[cb.dataset.sectionKey] = false;
+                }
+            });
+            const selectedReq = detailsContainer.dataset.selectedRequest;
+            if (selectedReq) {
+                const req = capturedRequests.find(r => r.id === parseInt(selectedReq));
+                if (req) showRequestDetails(req);
+            }
+        };
+
+        selectButtonsContainer.appendChild(selectAllBtn);
+        selectButtonsContainer.appendChild(deselectAllBtn);
+
+        optionsContent.appendChild(methodsFilterTitle);
+        optionsContent.appendChild(methodsGrid);
+        optionsContent.appendChild(methodButtons);
+        optionsContent.appendChild(sectionVisibilityTitle);
+        optionsContent.appendChild(checkboxGrid);
+        optionsContent.appendChild(selectButtonsContainer);
+
+        optionsContainer.appendChild(optionsHeader);
+        optionsContainer.appendChild(optionsContent);
+
+        optionsHeader.onclick = function() {
+            if (optionsContent.style.display === 'none') {
+                optionsContent.style.display = 'block';
+                optionsCollapseIcon.classList.remove('collapsed');
+            } else {
+                optionsContent.style.display = 'none';
+                optionsCollapseIcon.classList.add('collapsed');
+            }
+        };
+
+        // Request list with label
+        const listLabel = document.createElement('div');
+        listLabel.className = 'area-label';
+        listLabel.textContent = '📋 Request List';
+        listLabel.style.marginTop = '10px';
+
+        const listContainer = document.createElement('div');
+        Object.assign(listContainer.style, {
+            height: '180px',
+            overflowY: 'auto',
+            marginBottom: '10px',
+            border: '2px solid #ddd',
+            borderRadius: '8px',
+            padding: '8px',
+            backgroundColor: '#f9f9f9',
+            flexShrink: '0'
+        });
+
+        // Details with label
+        const detailsLabel = document.createElement('div');
+        detailsLabel.className = 'area-label';
+        detailsLabel.textContent = '📄 Request Details';
+        detailsLabel.id = 'details-label';
+
+        const detailsContainer = document.createElement('div');
+        Object.assign(detailsContainer.style, {
+            border: '2px solid #ddd',
+            borderRadius: '8px',
+            padding: '12px',
+            backgroundColor: '#fafafa',
+            overflow: 'auto',
+            flex: '1',
+            minHeight: '0'
+        });
+
+        const statusMsg = document.createElement('div');
+        Object.assign(statusMsg.style, {
+            fontSize: '11px',
+            marginTop: '8px',
+            minHeight: '16px',
+            flexShrink: '0'
+        });
 
         function renderRequests() {
             listContainer.innerHTML = '';
-            detailsContainer.innerHTML = '<div style="color: #999;">Select a request to view details</div>';
-            titleText.textContent = 'XHR/Fetch Monitor (' + capturedRequests.length + ' requests)';
+            detailsContainer.innerHTML = '<div style="color: #999; text-align: center; padding: 20px;">Select a request to view details</div>';
+            
+            const filteredRequests = filterRequests(capturedRequests);
+            titleText.textContent = 'XHR/Fetch Monitor (' + filteredRequests.length + '/' + capturedRequests.length + ')';
 
             if (capturedRequests.length === 0) {
-                listContainer.innerHTML = '<div style="color: #999;">No XHR/Fetch requests captured yet.<br><br>Make sure this script runs BEFORE the page makes requests.<br>Try reloading the page with the script active.</div>';
+                listContainer.innerHTML = '<div style="color: #999; padding: 10px;">No requests captured yet.<br><br>Requests will appear here automatically.</div>';
+                return;
+            }
+            
+            if (filteredRequests.length === 0) {
+                listContainer.innerHTML = '<div style="color: #ff8c00; padding: 10px;">No requests match the current filters.<br><br>Try adjusting your search or method filters.</div>';
                 return;
             }
 
-            const reversedRequests = capturedRequests.slice().reverse();
+            const reversedRequests = filteredRequests.slice().reverse();
             
             reversedRequests.forEach(function(req, index) {
                 const requestItem = document.createElement('div');
+                requestItem.dataset.requestId = req.id;
                 Object.assign(requestItem.style, {
-                    padding: '10px',
-                    marginBottom: '8px',
+                    padding: '6px 8px',
+                    marginBottom: '5px',
                     backgroundColor: '#fff',
                     border: '1.5px solid #ddd',
-                    borderRadius: '6px',
+                    borderRadius: '5px',
                     cursor: 'pointer',
-                    transition: 'all 0.2s ease'
+                    transition: 'all 0.2s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
                 });
 
+                // Add selected class if this is the selected request
+                if (selectedRequestId === req.id) {
+                    requestItem.classList.add('request-item-selected');
+                }
+
                 requestItem.onmouseover = function() {
-                    requestItem.style.backgroundColor = '#e6f0fa';
-                    requestItem.style.borderColor = '#0078d7';
+                    if (!this.classList.contains('request-item-selected')) {
+                        requestItem.style.backgroundColor = '#e6f0fa';
+                        requestItem.style.borderColor = '#0078d7';
+                    }
                 };
                 requestItem.onmouseout = function() {
-                    requestItem.style.backgroundColor = '#fff';
-                    requestItem.style.borderColor = '#ddd';
+                    if (!this.classList.contains('request-item-selected')) {
+                        requestItem.style.backgroundColor = '#fff';
+                        requestItem.style.borderColor = '#ddd';
+                    }
                 };
+
+                // Selection icon
+                const selectionIcon = document.createElement('span');
+                selectionIcon.textContent = selectedRequestId === req.id ? '👉' : '⚪';
+                selectionIcon.style.fontSize = '14px';
+                selectionIcon.style.flexShrink = '0';
 
                 const methodBadge = document.createElement('span');
                 methodBadge.textContent = req.method;
                 Object.assign(methodBadge.style, {
                     display: 'inline-block',
-                    padding: '2px 8px',
+                    padding: '2px 6px',
                     backgroundColor: getMethodColor(req.method),
                     color: '#fff',
-                    borderRadius: '4px',
-                    fontSize: '11px',
+                    borderRadius: '3px',
+                    fontSize: '10px',
                     fontWeight: 'bold',
-                    marginRight: '8px'
+                    flexShrink: '0'
                 });
 
                 const typeBadge = document.createElement('span');
                 typeBadge.textContent = req.type.toUpperCase();
                 Object.assign(typeBadge.style, {
                     display: 'inline-block',
-                    padding: '2px 6px',
+                    padding: '2px 5px',
                     backgroundColor: req.type === 'fetch' ? '#8764b8' : '#ff8c00',
                     color: '#fff',
-                    borderRadius: '4px',
-                    fontSize: '10px',
+                    borderRadius: '3px',
+                    fontSize: '9px',
                     fontWeight: 'bold',
-                    marginRight: '8px'
+                    flexShrink: '0'
                 });
 
                 const urlText = document.createElement('span');
-                urlText.textContent = truncateUrl(req.url, 45);
-                urlText.style.fontSize = '13px';
+                urlText.textContent = truncateUrl(req.url, 30);
+                urlText.style.fontSize = '11px';
+                urlText.style.flex = '1';
+                urlText.style.overflow = 'hidden';
+                urlText.style.textOverflow = 'ellipsis';
+                urlText.style.whiteSpace = 'nowrap';
 
                 const statusBadge = document.createElement('span');
                 statusBadge.textContent = req.status || 'Pending';
                 Object.assign(statusBadge.style, {
                     display: 'inline-block',
-                    padding: '2px 8px',
+                    padding: '2px 6px',
                     backgroundColor: getStatusColor(req.status),
                     color: '#fff',
-                    borderRadius: '4px',
-                    fontSize: '11px',
-                    marginLeft: '8px'
+                    borderRadius: '3px',
+                    fontSize: '9px',
+                    flexShrink: '0'
                 });
 
                 const timeText = document.createElement('span');
                 timeText.textContent = formatTime(req.timestamp);
                 Object.assign(timeText.style, {
-                    fontSize: '11px',
+                    fontSize: '9px',
                     color: '#666',
-                    marginLeft: '8px',
-                    fontFamily: 'monospace'
+                    fontFamily: 'monospace',
+                    flexShrink: '0'
                 });
 
+                requestItem.appendChild(selectionIcon);
                 requestItem.appendChild(methodBadge);
                 requestItem.appendChild(typeBadge);
                 requestItem.appendChild(urlText);
                 requestItem.appendChild(statusBadge);
                 requestItem.appendChild(timeText);
 
-                requestItem.onclick = function() { showRequestDetails(req); };
+                requestItem.onclick = function() { 
+                    selectedRequestId = req.id;
+                    // Remove selected class from all items
+                    document.querySelectorAll('.request-item-selected').forEach(function(item) {
+                        item.classList.remove('request-item-selected');
+                        item.style.backgroundColor = '#fff';
+                        item.style.borderColor = '#ddd';
+                        item.style.borderWidth = '1.5px';
+                        item.querySelector('span').textContent = '⚪';
+                    });
+                    // Add selected class to this item
+                    this.classList.add('request-item-selected');
+                    this.querySelector('span').textContent = '👉';
+                    showRequestDetails(req);
+                };
                 
                 listContainer.appendChild(requestItem);
 
-                if (index === 0) {
-                    setTimeout(function() { showRequestDetails(req); }, 100);
+                if (index === 0 && !selectedRequestId) {
+                    setTimeout(function() { 
+                        selectedRequestId = req.id;
+                        requestItem.classList.add('request-item-selected');
+                        selectionIcon.textContent = '👉';
+                        showRequestDetails(req);
+                    }, 100);
                 }
             });
         }
 
         function showRequestDetails(request) {
             detailsContainer.innerHTML = '';
-
-            const infoSection = createSection('Request Information');
-            infoSection.innerHTML += '<div style="margin: 8px 0;"><strong>Method:</strong> ' + request.method + '</div>' +
-                '<div style="margin: 8px 0;"><strong>URL:</strong> ' + request.url + '</div>' +
-                '<div style="margin: 8px 0;"><strong>Status:</strong> ' + request.status + ' ' + (request.statusText || '') + '</div>' +
-                '<div style="margin: 8px 0;"><strong>Time:</strong> ' + request.timestamp + '</div>' +
-                '<div style="margin: 8px 0;"><strong>Type:</strong> ' + request.type.toUpperCase() + '</div>';
+            detailsContainer.dataset.selectedRequest = request.id;
+            
+            // Update details label
+            const detailsLabelElem = document.getElementById('details-label');
+            if (detailsLabelElem) {
+                detailsLabelElem.textContent = '📄 Request Details - ' + request.method + ' (ID: ' + request.id + ')';
+            }
 
             const buttonContainer = document.createElement('div');
-            buttonContainer.style.margin = '15px 0';
+            Object.assign(buttonContainer.style, {
+                marginBottom: '12px',
+                display: 'flex',
+                gap: '8px',
+                flexWrap: 'wrap'
+            });
 
             const buttons = [
-                { text: 'Copy URL', action: function() { copyData(request.url, 'URL'); } },
-                { text: 'Copy Request', action: function() { copyData(formatRequest(request), 'Request'); } },
-                { text: 'Copy Response', action: function() { copyData(request.response || 'No response', 'Response'); } },
-                { text: 'Copy cURL', action: function() { copyData(generateCurl(request), 'cURL'); } },
-                { text: 'Copy Headers', action: function() { copyData(JSON.stringify(request.headers, null, 2), 'Headers'); } },
-                { text: 'Copy All', action: function() { copyData(formatFullRequest(request), 'Complete request data'); } }
+                { text: '📋 Copy cURL', action: function() { 
+                    copyTextToClipboard(generateCurl(request));
+                    showStatus('cURL copied!');
+                }},
+                { text: '🔗 Copy URL', action: function() { 
+                    copyTextToClipboard(request.url);
+                    showStatus('URL copied!');
+                }},
+                { text: '📄 Copy All', action: function() { 
+                    copyTextToClipboard(formatFullRequest(request));
+                    showStatus('All data copied!');
+                }}
             ];
 
             buttons.forEach(function(btn) {
                 const button = document.createElement('button');
                 button.textContent = btn.text;
                 Object.assign(button.style, {
-                    padding: '6px 12px',
+                    padding: '8px 16px',
                     backgroundColor: '#0078d7',
                     color: '#fff',
                     border: 'none',
-                    borderRadius: '6px',
+                    borderRadius: '5px',
                     fontSize: '12px',
                     cursor: 'pointer',
-                    marginRight: '8px',
-                    marginBottom: '8px',
-                    transition: 'background-color 0.3s ease'
+                    transition: 'background-color 0.2s ease',
+                    fontWeight: 'bold',
+                    flex: '1',
+                    minWidth: '120px'
                 });
                 button.onmouseover = function() { button.style.backgroundColor = '#005a9e'; };
                 button.onmouseout = function() { button.style.backgroundColor = '#0078d7'; };
@@ -593,60 +1223,46 @@
                 buttonContainer.appendChild(button);
             });
 
-            if (Object.keys(request.headers).length > 0) {
-                const headersSection = createSection('Request Headers');
-                headersSection.innerHTML += '<pre style="background: #fff; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 12px;">' + JSON.stringify(request.headers, null, 2) + '</pre>';
-                detailsContainer.appendChild(headersSection);
+            detailsContainer.appendChild(buttonContainer);
+
+            if (sectionSettings.requestInfo) {
+                const infoContent = 'Method: ' + request.method + '\n' +
+                    'URL: ' + request.url + '\n' +
+                    'Status: ' + request.status + ' ' + (request.statusText || '') + '\n' +
+                    'Time: ' + request.timestamp + '\n' +
+                    'Type: ' + request.type.toUpperCase();
+                detailsContainer.appendChild(createSectionCard('REQUEST INFO', infoContent, '#0078d7'));
             }
 
-            if (request.body) {
-                const bodySection = createSection('Request Body');
-                bodySection.innerHTML += '<pre style="background: #fff; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 12px; max-height: 150px;">' + escapeHtml(request.body) + '</pre>';
-                detailsContainer.appendChild(bodySection);
+            if (sectionSettings.requestHeaders && Object.keys(request.headers).length > 0) {
+                const headersContent = JSON.stringify(request.headers, null, 2);
+                detailsContainer.appendChild(createSectionCard('REQUEST HEADERS', headersContent, '#107c10'));
             }
 
-            if (Object.keys(request.responseHeaders).length > 0) {
-                const respHeadersSection = createSection('Response Headers');
-                respHeadersSection.innerHTML += '<pre style="background: #fff; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 12px;">' + JSON.stringify(request.responseHeaders, null, 2) + '</pre>';
-                detailsContainer.appendChild(respHeadersSection);
+            if (sectionSettings.requestBody && request.body) {
+                detailsContainer.appendChild(createSectionCard('REQUEST BODY', request.body, '#8764b8'));
             }
 
-            if (request.response) {
-                const responseSection = createSection('Response Body');
-                responseSection.innerHTML += '<pre style="background: #fff; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 12px; max-height: 200px;">' + escapeHtml(request.response) + '</pre>';
-                detailsContainer.appendChild(responseSection);
+            if (sectionSettings.responseHeaders && Object.keys(request.responseHeaders).length > 0) {
+                const respHeadersContent = JSON.stringify(request.responseHeaders, null, 2);
+                detailsContainer.appendChild(createSectionCard('RESPONSE HEADERS', respHeadersContent, '#ff8c00'));
             }
 
-            detailsContainer.insertBefore(buttonContainer, detailsContainer.firstChild);
-            detailsContainer.insertBefore(infoSection, detailsContainer.firstChild);
+            if (sectionSettings.responseBody && request.response) {
+                detailsContainer.appendChild(createSectionCard('RESPONSE BODY', request.response, '#d13438'));
+            }
+
+            if (detailsContainer.children.length === 1) {
+                detailsContainer.innerHTML += '<div style="padding: 20px; text-align: center; color: #999;">No sections to display (check options above)</div>';
+            }
         }
 
-        function createSection(title) {
-            const section = document.createElement('div');
-            section.style.marginBottom = '15px';
-            const titleEl = document.createElement('div');
-            titleEl.textContent = title;
-            Object.assign(titleEl.style, {
-                fontWeight: 'bold',
-                marginBottom: '8px',
-                color: '#555',
-                fontSize: '13px'
-            });
-            section.appendChild(titleEl);
-            return section;
-        }
-
-        function copyData(data, label) {
-            copyTextToClipboard(data).then(function(success) {
-                statusMsg.textContent = success ? '✅ ' + label + ' copied to clipboard!' : '⚠️ Failed to copy ' + label;
-                statusMsg.style.color = success ? '#2b7a0b' : '#cc6c00';
-            });
-        }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
+        function showStatus(message) {
+            statusMsg.textContent = '✅ ' + message;
+            statusMsg.style.color = '#2b7a0b';
+            setTimeout(function() {
+                statusMsg.textContent = '';
+            }, 2000);
         }
 
         function formatRequest(request) {
@@ -663,7 +1279,9 @@
                 'POST': '#0078d7',
                 'PUT': '#ff8c00',
                 'DELETE': '#d13438',
-                'PATCH': '#8764b8'
+                'PATCH': '#8764b8',
+                'HEAD': '#5c2d91',
+                'OPTIONS': '#008272'
             };
             return colors[method] || '#666';
         }
@@ -680,8 +1298,66 @@
             return url.length > maxLength ? url.substring(0, maxLength) + '...' : url;
         }
 
+        refreshButton.onclick = function() {
+            renderRequests();
+            showStatus('Refreshed - ' + capturedRequests.length + ' requests');
+        };
+
+        clearButton.onclick = function() {
+            capturedRequests.length = 0;
+            selectedRequestId = null;
+            renderRequests();
+            showStatus('All requests cleared');
+        };
+
+        autoRefreshCheckbox.onchange = function() {
+            if (this.checked) {
+                autoRefreshInterval = setInterval(function() {
+                    renderRequests();
+                }, filterSettings.autoRefreshInterval);
+            } else {
+                if (autoRefreshInterval) {
+                    clearInterval(autoRefreshInterval);
+                    autoRefreshInterval = null;
+                }
+            }
+        };
+
+        if (autoRefreshCheckbox.checked) {
+            autoRefreshInterval = setInterval(function() {
+                renderRequests();
+            }, filterSettings.autoRefreshInterval);
+        }
+
+        let isMinimized = false;
+        minimizeButton.onclick = function() {
+            if (isMinimized) {
+                content.style.display = 'flex';
+                container.style.height = 'auto';
+                container.style.minHeight = '400px';
+                container.style.resize = 'both';
+                minimizeButton.textContent = '−';
+                minimizeButton.title = 'Minimize';
+                isMinimized = false;
+            } else {
+                content.style.display = 'none';
+                container.style.height = 'auto';
+                container.style.minHeight = '0';
+                container.style.resize = 'horizontal';
+                minimizeButton.textContent = '□';
+                minimizeButton.title = 'Maximize';
+                isMinimized = true;
+            }
+        };
+
+        content.appendChild(searchLabel);
+        content.appendChild(searchContainer);
+        content.appendChild(controlLabel);
         content.appendChild(controlBar);
+        content.appendChild(optionsContainer);
+        content.appendChild(listLabel);
         content.appendChild(listContainer);
+        content.appendChild(detailsLabel);
         content.appendChild(detailsContainer);
         content.appendChild(statusMsg);
 
@@ -696,8 +1372,10 @@
     }
 
     window.viewNetworkRequests = showRequestViewer;
+    window.toggleNetworkMonitor = showRequestViewer;
     
-    console.log('XHR/Fetch monitor initialized! Captured: ' + capturedRequests.length + ' requests. Call viewNetworkRequests() to view.');
+    console.log('%c✅ XHR/Fetch Monitor Loaded!', 'color: #0078d7; font-size: 14px; font-weight: bold;');
+    console.log('Call viewNetworkRequests() or toggleNetworkMonitor() to show/hide');
     
     showRequestViewer();
 })();
