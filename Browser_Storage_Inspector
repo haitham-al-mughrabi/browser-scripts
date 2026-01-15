@@ -1,0 +1,530 @@
+// Storage Manager with Inline Editing + Notifications (Always LTR)
+(function() {
+    'use strict';
+    
+    // Notification system
+    function showNotification(message, type = 'info') {
+        const existingNotif = document.querySelector('.storage-mgr-notification');
+        if (existingNotif) existingNotif.remove();
+        
+        const colors = {
+            'success': { bg: '#10b981', icon: '✓' },
+            'info': { bg: '#3b82f6', icon: 'ℹ' },
+            'warning': { bg: '#f59e0b', icon: '⚠' },
+            'error': { bg: '#ef4444', icon: '✕' }
+        };
+        
+        const config = colors[type] || colors['info'];
+        
+        const notif = document.createElement('div');
+        notif.className = 'storage-mgr-notification';
+        notif.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: ${config.bg};
+            color: white;
+            padding: 12px 20px;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 14px;
+            font-weight: 500;
+            z-index: 100001;
+            animation: slideIn 0.3s ease-out;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            direction: ltr;
+        `;
+        
+        notif.innerHTML = `<span style="font-size: 16px;">${config.icon}</span><span>${message}</span>`;
+        document.body.appendChild(notif);
+        
+        setTimeout(() => {
+            notif.style.animation = 'slideOut 0.3s ease-in';
+            setTimeout(() => notif.remove(), 300);
+        }, 3000);
+    }
+    
+    // Add animations
+    if (!document.querySelector('style[data-storage-mgr-styles]')) {
+        const style = document.createElement('style');
+        style.setAttribute('data-storage-mgr-styles', 'true');
+        style.textContent = `
+            @keyframes slideIn {
+                from { transform: translateX(400px); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            @keyframes slideOut {
+                from { transform: translateX(0); opacity: 1; }
+                to { transform: translateX(400px); opacity: 0; }
+            }
+            @keyframes fadeIn {
+                from { opacity: 0; }
+                to { opacity: 1; }
+            }
+            .storage-editable:hover {
+                background: #fff3cd !important;
+                cursor: text;
+                outline: 2px dashed #ffc107;
+            }
+            .storage-editable:focus {
+                background: #fffbeb !important;
+                outline: 2px solid #f59e0b;
+                cursor: text;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
+    // Copy to clipboard
+    function copyToClipboard(text, button) {
+        navigator.clipboard.writeText(text).then(() => {
+            const originalText = button.innerHTML;
+            const originalBg = button.style.background;
+            button.innerHTML = '✓';
+            button.style.background = '#10b981';
+            showNotification('Copied to clipboard! 📋', 'success');
+            
+            setTimeout(() => {
+                button.innerHTML = originalText;
+                button.style.background = originalBg;
+            }, 2000);
+        }).catch(err => {
+            console.error('Copy failed:', err);
+            showNotification('Failed to copy', 'error');
+        });
+    }
+    
+    // Format value for display
+    function formatValue(value) {
+        if (value === null || value === undefined) {
+            return '<span style="color:#999;font-style:italic">null</span>';
+        }
+        
+        // Try to parse as JSON for pretty display
+        try {
+            const parsed = JSON.parse(value);
+            if (typeof parsed === 'object') {
+                return `<pre style="margin:0;font-family:monospace;font-size:12px;background:#f5f5f5;padding:6px;border-radius:3px;max-height:200px;overflow:auto;direction:ltr;text-align:left">${JSON.stringify(parsed, null, 2)}</pre>`;
+            }
+        } catch(e) {
+            // Not JSON, display as is
+        }
+        
+        return `<span style="font-family:monospace;direction:ltr;display:inline-block">${value}</span>`;
+    }
+    
+    // Create storage table
+    function createStorageTable(storageType) {
+        const storage = storageType === 'local' ? localStorage : sessionStorage;
+        const storageObj = storageType === 'local' ? localStorage : sessionStorage;
+        const keys = Object.keys(storage);
+        
+        const colorScheme = storageType === 'local' 
+            ? { header: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', even: '#f8f9ff', odd: '#ffffff', hover: '#e8e9ff' }
+            : { header: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)', even: '#f0fff9', odd: '#ffffff', hover: '#e0fff3' };
+        
+        if (keys.length === 0) {
+            return `<div style="text-align:center;padding:40px;color:#999;font-style:italic;direction:ltr">
+                No items in ${storageType}Storage
+            </div>`;
+        }
+        
+        const tableStyle = `width:100%;border-collapse:collapse;box-shadow:0 2px 8px rgba(0,0,0,0.08);background:#fff;border-radius:6px;overflow:hidden;direction:ltr`;
+        const thStyle = `padding:12px 14px;background:${colorScheme.header};color:#fff;text-align:left;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;border:none`;
+        const tdStyle = `padding:10px 14px;border:1px solid #e8e8e8;font-size:13px;vertical-align:top;word-break:break-word;text-align:left`;
+        
+        let html = `<table style="${tableStyle}">`;
+        html += '<thead><tr>';
+        html += `<th style="${thStyle};width:25%">Key</th>`;
+        html += `<th style="${thStyle};width:50%">Value</th>`;
+        html += `<th style="${thStyle};width:25%;text-align:center">Actions</th>`;
+        html += '</tr></thead><tbody>';
+        
+        keys.forEach((key, idx) => {
+            const value = storage.getItem(key);
+            const rowBg = idx % 2 === 0 ? colorScheme.even : colorScheme.odd;
+            
+            html += `<tr style="transition:background 0.15s" onmouseover="this.style.background='${colorScheme.hover}'" onmouseout="this.style.background='${rowBg}'">`;
+            
+            // Key column
+            html += `<td style="${tdStyle};background:${rowBg};font-weight:600;color:#555">
+                <div style="font-family:monospace;font-size:12px;direction:ltr">${key}</div>
+            </td>`;
+            
+            // Value column (editable)
+            html += `<td style="${tdStyle};background:${rowBg}" class="value-cell">
+                <div class="storage-editable" 
+                     contenteditable="true" 
+                     data-storage="${storageType}" 
+                     data-key="${key}"
+                     style="min-height:20px;padding:4px;border-radius:3px;transition:all 0.2s;direction:ltr;text-align:left"
+                     spellcheck="false">${value || '<span style="color:#ccc">empty</span>'}</div>
+            </td>`;
+            
+            // Actions column
+            html += `<td style="${tdStyle};background:${rowBg};text-align:center">
+                <button class="copy-value-btn" data-value="${value ? value.replace(/"/g, '&quot;') : ''}" 
+                        style="background:linear-gradient(135deg,#4facfe 0%,#00f2fe 100%);color:white;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:11px;margin-right:5px;transition:all 0.2s;direction:ltr">
+                    📄 Copy
+                </button>
+                <button class="delete-item-btn" data-storage="${storageType}" data-key="${key}"
+                        style="background:linear-gradient(135deg,#f093fb 0%,#f5576c 100%);color:white;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:11px;transition:all 0.2s;direction:ltr">
+                    🗑️ Delete
+                </button>
+            </td>`;
+            
+            html += '</tr>';
+        });
+        
+        html += '</tbody></table>';
+        return html;
+    }
+    
+    // Create the main UI panel
+    function createStoragePanel() {
+        // Remove existing panel if any
+        const existing = document.getElementById('storage-manager-panel');
+        if (existing) {
+            existing.remove();
+            return;
+        }
+        
+        const panel = document.createElement('div');
+        panel.id = 'storage-manager-panel';
+        panel.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 90%;
+            max-width: 1000px;
+            max-height: 85vh;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            z-index: 100000;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            animation: fadeIn 0.3s ease-out;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            direction: ltr;
+        `;
+        
+        // Header
+        const header = document.createElement('div');
+        header.style.cssText = `
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 18px 24px;
+            font-size: 18px;
+            font-weight: 700;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            direction: ltr;
+        `;
+        header.innerHTML = `
+            <span>🗄️ Storage Manager</span>
+            <button id="close-storage-panel" style="background:rgba(255,255,255,0.2);border:none;color:white;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:16px;font-weight:bold;transition:all 0.2s">✕</button>
+        `;
+        
+        // Tabs
+        const tabs = document.createElement('div');
+        tabs.style.cssText = `
+            display: flex;
+            background: #f8f9fa;
+            border-bottom: 2px solid #e0e0e0;
+            padding: 0 24px;
+            direction: ltr;
+        `;
+        tabs.innerHTML = `
+            <button class="storage-tab active" data-storage="local" style="padding:12px 24px;border:none;background:white;cursor:pointer;font-weight:600;border-bottom:3px solid #667eea;transition:all 0.2s;direction:ltr">
+                localStorage (${Object.keys(localStorage).length})
+            </button>
+            <button class="storage-tab" data-storage="session" style="padding:12px 24px;border:none;background:transparent;cursor:pointer;font-weight:600;border-bottom:3px solid transparent;transition:all 0.2s;direction:ltr">
+                sessionStorage (${Object.keys(sessionStorage).length})
+            </button>
+        `;
+        
+        // Content area
+        const content = document.createElement('div');
+        content.id = 'storage-content';
+        content.style.cssText = `
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+            background: #fafbfc;
+            direction: ltr;
+        `;
+        content.innerHTML = createStorageTable('local');
+        
+        // Footer with Add New button
+        const footer = document.createElement('div');
+        footer.style.cssText = `
+            padding: 16px 24px;
+            background: #f8f9fa;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            direction: ltr;
+        `;
+        footer.innerHTML = `
+            <button id="add-storage-item-btn" style="background:linear-gradient(135deg,#43e97b 0%,#38f9d7 100%);color:white;border:none;padding:10px 20px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px;transition:all 0.2s;direction:ltr">
+                ➕ Add New Item
+            </button>
+            <button id="refresh-storage-btn" style="background:linear-gradient(135deg,#fa709a 0%,#fee140 100%);color:white;border:none;padding:10px 20px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px;transition:all 0.2s;direction:ltr">
+                🔄 Refresh
+            </button>
+        `;
+        
+        panel.appendChild(header);
+        panel.appendChild(tabs);
+        panel.appendChild(content);
+        panel.appendChild(footer);
+        
+        // Backdrop
+        const backdrop = document.createElement('div');
+        backdrop.id = 'storage-manager-backdrop';
+        backdrop.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 99999;
+            animation: fadeIn 0.3s ease-out;
+        `;
+        
+        document.body.appendChild(backdrop);
+        document.body.appendChild(panel);
+        
+        attachEventListeners();
+        showNotification('Storage Manager opened! 🗄️', 'info');
+    }
+    
+    // Attach event listeners
+    function attachEventListeners() {
+        let currentStorage = 'local';
+        
+        // Close button
+        document.getElementById('close-storage-panel')?.addEventListener('click', () => {
+            document.getElementById('storage-manager-panel')?.remove();
+            document.getElementById('storage-manager-backdrop')?.remove();
+        });
+        
+        // Backdrop click
+        document.getElementById('storage-manager-backdrop')?.addEventListener('click', () => {
+            document.getElementById('storage-manager-panel')?.remove();
+            document.getElementById('storage-manager-backdrop')?.remove();
+        });
+        
+        // Tab switching
+        document.querySelectorAll('.storage-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.storage-tab').forEach(t => {
+                    t.style.background = 'transparent';
+                    t.style.borderBottom = '3px solid transparent';
+                    t.classList.remove('active');
+                });
+                tab.style.background = 'white';
+                tab.style.borderBottom = '3px solid #667eea';
+                tab.classList.add('active');
+                
+                currentStorage = tab.dataset.storage;
+                const content = document.getElementById('storage-content');
+                if (content) {
+                    content.innerHTML = createStorageTable(currentStorage);
+                    attachContentListeners();
+                }
+            });
+        });
+        
+        // Refresh button
+        document.getElementById('refresh-storage-btn')?.addEventListener('click', () => {
+            const content = document.getElementById('storage-content');
+            if (content) {
+                content.innerHTML = createStorageTable(currentStorage);
+                attachContentListeners();
+                showNotification('Storage refreshed! 🔄', 'success');
+            }
+            
+            // Update tab counts
+            document.querySelectorAll('.storage-tab').forEach(tab => {
+                const storageType = tab.dataset.storage;
+                const count = storageType === 'local' ? Object.keys(localStorage).length : Object.keys(sessionStorage).length;
+                const label = storageType === 'local' ? 'localStorage' : 'sessionStorage';
+                tab.innerHTML = `${label} (${count})`;
+            });
+        });
+        
+        // Add new item button
+        document.getElementById('add-storage-item-btn')?.addEventListener('click', () => {
+            const key = prompt('Enter key name:');
+            if (!key) return;
+            
+            const value = prompt('Enter value:');
+            if (value === null) return;
+            
+            const storage = currentStorage === 'local' ? localStorage : sessionStorage;
+            storage.setItem(key, value);
+            
+            const content = document.getElementById('storage-content');
+            if (content) {
+                content.innerHTML = createStorageTable(currentStorage);
+                attachContentListeners();
+            }
+            
+            showNotification(`Item "${key}" added! ✓`, 'success');
+            
+            // Update tab counts
+            document.querySelectorAll('.storage-tab').forEach(tab => {
+                const storageType = tab.dataset.storage;
+                const count = storageType === 'local' ? Object.keys(localStorage).length : Object.keys(sessionStorage).length;
+                const label = storageType === 'local' ? 'localStorage' : 'sessionStorage';
+                tab.innerHTML = `${label} (${count})`;
+            });
+        });
+        
+        attachContentListeners();
+    }
+    
+    // Attach listeners for table content
+    function attachContentListeners() {
+        // Editable cells
+        document.querySelectorAll('.storage-editable').forEach(cell => {
+            cell.addEventListener('blur', function() {
+                const key = this.dataset.key;
+                const storageType = this.dataset.storage;
+                const newValue = this.textContent.trim();
+                
+                const storage = storageType === 'local' ? localStorage : sessionStorage;
+                storage.setItem(key, newValue);
+                
+                showNotification(`Updated "${key}"! ✓`, 'success');
+            });
+            
+            cell.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    this.blur();
+                }
+            });
+        });
+        
+        // Copy buttons
+        document.querySelectorAll('.copy-value-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const value = this.dataset.value;
+                copyToClipboard(value, this);
+            });
+            
+            btn.addEventListener('mouseenter', function() {
+                this.style.transform = 'scale(1.05)';
+                this.style.boxShadow = '0 2px 8px rgba(79, 172, 254, 0.4)';
+            });
+            btn.addEventListener('mouseleave', function() {
+                this.style.transform = 'scale(1)';
+                this.style.boxShadow = 'none';
+            });
+        });
+        
+        // Delete buttons
+        document.querySelectorAll('.delete-item-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const key = this.dataset.key;
+                const storageType = this.dataset.storage;
+                
+                if (!confirm(`Delete "${key}"?`)) return;
+                
+                const storage = storageType === 'local' ? localStorage : sessionStorage;
+                storage.removeItem(key);
+                
+                const content = document.getElementById('storage-content');
+                if (content) {
+                    content.innerHTML = createStorageTable(storageType);
+                    attachContentListeners();
+                }
+                
+                showNotification(`Deleted "${key}"! 🗑️`, 'success');
+                
+                // Update tab counts
+                document.querySelectorAll('.storage-tab').forEach(tab => {
+                    const sType = tab.dataset.storage;
+                    const count = sType === 'local' ? Object.keys(localStorage).length : Object.keys(sessionStorage).length;
+                    const label = sType === 'local' ? 'localStorage' : 'sessionStorage';
+                    tab.innerHTML = `${label} (${count})`;
+                });
+            });
+            
+            btn.addEventListener('mouseenter', function() {
+                this.style.transform = 'scale(1.05)';
+                this.style.boxShadow = '0 2px 8px rgba(240, 147, 251, 0.4)';
+            });
+            btn.addEventListener('mouseleave', function() {
+                this.style.transform = 'scale(1)';
+                this.style.boxShadow = 'none';
+            });
+        });
+    }
+    
+    // Create floating toggle button
+    function createToggleButton() {
+        if (document.getElementById('storage-manager-toggle')) return;
+        
+        const button = document.createElement('button');
+        button.id = 'storage-manager-toggle';
+        button.innerHTML = '🗄️';
+        button.title = 'Open Storage Manager';
+        button.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+            z-index: 99998;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            direction: ltr;
+        `;
+        
+        button.addEventListener('mouseenter', () => {
+            button.style.transform = 'scale(1.1)';
+            button.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.6)';
+        });
+        
+        button.addEventListener('mouseleave', () => {
+            button.style.transform = 'scale(1)';
+            button.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
+        });
+        
+        button.addEventListener('click', createStoragePanel);
+        
+        document.body.appendChild(button);
+    }
+    
+    // Initialize
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', createToggleButton);
+    } else {
+        createToggleButton();
+    }
+    
+    console.log('✓ Storage Manager initialized');
+    showNotification('Storage Manager ready! Click 🗄️ button', 'success');
+    
+})();
